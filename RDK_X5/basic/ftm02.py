@@ -9,6 +9,21 @@ TEMP_CHANNEL = 1
 HUMI_CHANNEL = 2
 
 
+# User-configured sensor scaling: 0-10 V -> -20..80 degC / 0..100 %RH.
+# This setting assumes the connected sensor has a 0-10 V output.
+SENSOR_OUTPUT_MAX_V = 10.0
+TEMP_MIN_C = -20.0
+TEMP_MAX_C = 80.0
+
+
+def voltage_to_temperature(voltage):
+    return TEMP_MIN_C + voltage / SENSOR_OUTPUT_MAX_V * (TEMP_MAX_C - TEMP_MIN_C)
+
+
+def voltage_to_humidity(voltage):
+    return voltage / SENSOR_OUTPUT_MAX_V * 100.0
+
+
 def read_voltage(channel):
     """
     SM-I-001의 0~10V Analog Input 전압 읽기
@@ -58,8 +73,8 @@ def main():
             if temp_voltage is not None and humi_voltage is not None:
 
                 print(
-                    f"CH1 Temperature : {temp_voltage:.3f} V    "
-                    f"CH2 Humidity : {humi_voltage:.3f} V"
+                    f"CH1 Temperature : {temp_voltage:.3f} V ({voltage_to_temperature(temp_voltage):.2f} \u00b0C)    "
+                    f"CH2 Humidity : {humi_voltage:.3f} V ({voltage_to_humidity(humi_voltage):.2f} %RH)"
                 )
 
             time.sleep(1)

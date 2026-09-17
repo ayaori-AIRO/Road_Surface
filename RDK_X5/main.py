@@ -110,12 +110,14 @@ def main():
 
                 print(
                     f"Humidity Voltage    : "
-                    f"{ftm_data['humidity_voltage']:.3f} V"
+                    f"{ftm_data['humidity_voltage']:.3f} V  "
+                    f"Humidity: {ftm_data['humidity']:.2f} %RH"
                 )
 
                 print(
                     f"Temperature Voltage : "
-                    f"{ftm_data['temperature_voltage']:.3f} V"
+                    f"{ftm_data['temperature_voltage']:.3f} V  "
+                    f"Temperature: {ftm_data['temperature']:.2f} \u00b0C"
                 )
 
             else:
