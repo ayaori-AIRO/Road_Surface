@@ -104,6 +104,12 @@ while True:
                         sensor_data.get("imu")
                     )
 
+                    if sensor_data.get("simulation"):
+                        print("[SIMULATION] Generated sensor values")
+                    if "predicted_noise_m" in sensor_data:
+                        print("Predicted Noise (m):", sensor_data["predicted_noise_m"])
+                        print("Temperature/Humidity source:", sensor_data.get("noise_environment_sensor"))
+
                 except json.JSONDecodeError as e:
 
                     print(

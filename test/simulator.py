@@ -44,34 +44,53 @@ def display(name, data):
 
 
 def run(sensors, tcp=False, predictor=None):
-    parser = argparse.ArgumentParser(description="Simulated sensor output; no hardware or network access.")
+    parser = argparse.ArgumentParser(description="Simulated sensor output with optional Jetson TCP transmission.")
     parser.add_argument("--interval", type=float, default=1.0, help="Seconds between readings")
     parser.add_argument("--count", type=int, default=0, help="Number of readings; 0 runs until Ctrl+C")
+    if tcp:
+        parser.add_argument("--host", default="10.42.0.1", help="Jetson IP address")
+        parser.add_argument("--port", type=int, default=5000, help="Jetson TCP port")
+        parser.add_argument("--no-tcp", action="store_true", help="Display locally without TCP")
     args = parser.parse_args()
     if not math.isfinite(args.interval) or args.interval <= 0 or args.count < 0:
         parser.error("interval must be positive and finite; count must be nonnegative")
+    client = None
+    if tcp and not args.no_tcp:
+        if not 1 <= args.port <= 65535:
+            parser.error("port must be between 1 and 65535")
+        from tcp_client import TCPClient
+        client = TCPClient(args.host, args.port)
     print("[SIMULATION] Generated sensor values | Ctrl+C to stop", flush=True)
     index = 0
     try:
         while args.count == 0 or index < args.count:
             index += 1
+            now = datetime.now()
             print("=" * 54)
-            print(f"TIME : {datetime.now():%Y-%m-%d %H:%M:%S}  Sample: {index}")
+            print(f"TIME : {now:%Y-%m-%d %H:%M:%S}  Sample: {index}")
             print("=" * 54)
             readings = {}
             for name, read in sensors:
                 readings[name] = read()
                 display(name, readings[name])
+            payload = {"timestamp": now.isoformat(timespec="milliseconds"),
+                       "simulation": True, "sample": index, **readings}
             if predictor is not None:
                 noise = predictor.predict(readings)
+                payload["predicted_noise_m"] = noise
+                payload["noise_environment_sensor"] = predictor.environment_sensor
                 print("[ NOISE PREDICTION | simulated inputs ]")
                 print(f"Predicted Noise : {noise:+.6f} m ({noise * 100:+.3f} cm)")
                 print(f"Temperature / Humidity source: {predictor.environment_sensor.upper()}")
                 print()
-            if tcp:
-                print("[TCP SIMULATION] Send OK (no actual network transmission)")
+            if client is not None:
+                if client.send(payload):
+                    print("[TCP] Sent sensor values and prediction to Jetson")
             print(flush=True)
             if args.count == 0 or index < args.count:
                 time.sleep(args.interval)
     except KeyboardInterrupt:
         print("\nSimulation stopped.")
+    finally:
+        if client is not None:
+            client.close()
