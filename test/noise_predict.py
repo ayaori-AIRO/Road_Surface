@@ -1,6 +1,13 @@
 """Predict distance noise from one snapshot of simulated sensor readings."""
 
 from pathlib import Path
+import sys
+
+# Locate Raspberry Pi dependencies installed with pip --target on external storage.
+# This also works when launched directly using an editor's Run button.
+EXTERNAL_PACKAGES = Path("/media/pi/CONFIG/road_surface_python")
+if sys.platform == "linux" and EXTERNAL_PACKAGES.is_dir():
+    sys.path.insert(0, str(EXTERNAL_PACKAGES))
 
 import joblib
 import pandas as pd
