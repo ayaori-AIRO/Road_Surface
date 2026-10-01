@@ -1,0 +1,8 @@
+# Match the CM4 Python 3.9 runtime when training deployment artifacts.
+numpy==1.26.4
+scipy==1.13.1
+scikit-learn==1.6.1
+pandas==2.2.3
+joblib==1.5.3
+threadpoolctl==3.6.0
+openpyxl==3.1.5

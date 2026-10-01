@@ -20,7 +20,7 @@ else:
 
 JETSON_IP = "192.168.1.163"
 JETSON_PORT = 5000
-MODEL_PATH = Path(__file__).resolve().parents[2] / "ML/python/models/total_noise_model_accel_history_complete.joblib"
+MODEL_PATH = Path(__file__).resolve().parents[2] / "ML/python/models/total_noise_model_accel_history_complete_pi.joblib"
 
 
 def simulated_readers():

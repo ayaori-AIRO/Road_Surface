@@ -1,9 +1,10 @@
-# Use the same scikit-learn version as the saved model artifact.
-scikit-learn==1.9.0
-joblib
-numpy
-pandas
-threadpoolctl
+# CM4 Python 3.9; use the separately retrained *_pi.joblib artifact.
+scikit-learn==1.6.1
+joblib==1.5.3
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.3
+threadpoolctl==3.6.0
 # Sensor dependencies (install on Raspberry Pi).
 pyserial
 pynmea2

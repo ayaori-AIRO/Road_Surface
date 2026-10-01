@@ -80,7 +80,7 @@ def check_causality(data):
     pd.testing.assert_frame_equal(full.iloc[:35], make_features(altered, 5).iloc[:35])
     other = sample.copy()
     other.run_id = "independent_run"
-    other.index = np.arange(len(sample), len(sample)*2)
+    other.index = np.arange(len(sample), len(sample)*2, dtype=np.int64)
     combined = make_features(pd.concat([sample, other]), 5)
     pd.testing.assert_frame_equal(combined.loc[other.index], make_features(other, 5))
     assert combined.loc[other.index[0], "history_samples_available"] == 0

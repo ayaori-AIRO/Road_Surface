@@ -5,6 +5,7 @@
 # Generated Python bytecode.
 __pycache__/
 *.py[cod]
+/.venv-pi/
 
 # Keep prediction output directory, but exclude generated contents.
 /ML/dataset/predict_noise_snow/*
