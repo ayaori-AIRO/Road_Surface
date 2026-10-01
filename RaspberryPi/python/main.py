@@ -1,7 +1,7 @@
 """Run from repo root: python3 -m RaspberryPi.python.main
 
 Offline smoke test: python -m RaspberryPi.python.main --simulate --no-tcp --duration 3
-Default: real FTM02/IMU, synthetic distance/speed, gyro inputs fixed to zero.
+Default: real CT100/FTM02/IMU, synthetic distance/speed, gyro inputs fixed to zero.
 """
 import argparse
 from datetime import datetime
@@ -14,9 +14,11 @@ import time
 if __package__:
     from .live_prediction import Predictor, Latest, poll_sensor, input_values, replace_latest
     from .tcp_client import TCPClient
+    from .jetson_payload import build_payload
 else:
     from live_prediction import Predictor, Latest, poll_sensor, input_values, replace_latest
     from tcp_client import TCPClient
+    from jetson_payload import build_payload
 
 JETSON_IP = "192.168.1.163"
 JETSON_PORT = 5000
@@ -32,18 +34,30 @@ def simulated_readers():
                 "gyro": dict(x=0., y=0., z=0.),
                 "angle": dict(roll=0., pitch=0., yaw=0.)}
     return {"imu": (imu_read, .1),
+            "ct100": (lambda: dict(temperature=12.5), 1.),
             "ftm02": (lambda: dict(temperature=15.5, humidity=23.), 1.),
             "gps": (lambda: dict(fix=True, speed_kmh=30.), .5)}
 
 
 def transmit(tcp, queue, stop):
+    deadline = time.monotonic()
     try:
         while not stop.is_set():
+            if stop.wait(max(0., deadline - time.monotonic())):
+                break
+            if not tcp.connect():
+                stop.wait(1.)
+                continue
             try:
-                payload = queue.get(timeout=.2)
+                result, context, stamp = queue.get(timeout=.2)
             except Empty:
                 continue
-            tcp.send(payload)
+            # The bounded queue keeps the newest result during network delays.
+            tcp.send(build_payload(result, context, stamp, time.monotonic()))
+            deadline += .1
+            now = time.monotonic()
+            if deadline < now:
+                deadline += (math.floor((now - deadline) / .1) + 1) * .1
     finally:
         tcp.close()
 
@@ -114,7 +128,7 @@ def main():
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--no-tcp", action="store_true")
     parser.add_argument("--duration", type=float, default=0, help="0 runs until Ctrl+C")
-    parser.add_argument("--aux-sensors", action="store_true", help="also poll CT100 and BME280")
+    parser.add_argument("--aux-sensors", action="store_true", help="also poll BME280")
     args = parser.parse_args()
     predictor = Predictor(args.model)
     cleanup = []
@@ -122,17 +136,18 @@ def main():
         readers = simulated_readers()
     else:
         if __package__:
-            from . import ftm02, imu, gps
+            from . import ct100, ftm02, imu, gps
         else:
-            import ftm02, imu, gps
-        readers = {"imu": (imu.read, .1), "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1)}
+            import ct100, ftm02, imu, gps
+        readers = {"imu": (imu.read, .1), "ct100": (ct100.read, 1.),
+                   "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1)}
         cleanup = [imu.close, gps.close]
         if args.aux_sensors:
             if __package__:
-                from . import ct100, bme280
+                from . import bme280
             else:
-                import ct100, bme280
-            readers.update(ct100=(ct100.read, 1.), bme280=(bme280.read, 1.))
+                import bme280
+            readers.update(bme280=(bme280.read, 1.))
     latest, stop = Latest(), threading.Event()
     samples, outgoing = Queue(maxsize=2), Queue(maxsize=1)
     threads = []
@@ -188,7 +203,7 @@ def main():
                        "timing": {"imu_read_ms": event["read_ms"], "imu_interval_ms": event["interval_ms"],
                                   "sensor_age_ms": ages, "sample_to_result_ms": elapsed*1000}}
             if not args.no_tcp:
-                replace_latest(outgoing, payload)
+                replace_latest(outgoing, (result, event["context"], stamp))
             if time.monotonic()-last_print >= 1.:
                 print(format_status(payload, latest.snapshot()))
                 last_print = time.monotonic()

@@ -1,6 +1,7 @@
 """Live 10 Hz acquisition and inference. All times below use a monotonic clock."""
 from collections import deque
 import math
+import random
 import threading
 import time
 
@@ -160,7 +161,7 @@ def input_values(event, speed_source, elapsed, max_ftm_age=3., max_speed_age=2.)
             return None, ages, "gps_speed_stale"
         speed = gps["value"]["speed_kmh"]
     else:
-        speed = 30+5*math.sin(.2*elapsed)
+        speed = random.uniform(0., 75.)
     base = {"distance_measured_m": 3.1715-.08+.005*math.sin(2*math.pi*.65*elapsed),
             "speed_kmh": speed, "gyro_x_dps": 0., "gyro_y_dps": 0., "gyro_z_dps": 0.,
             "temperature_c": ftm["value"]["temperature"],

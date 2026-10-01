@@ -61,7 +61,8 @@ class TCPClient:
             # Python dict → JSON
             message = json.dumps(
                 data,
-                ensure_ascii=False
+                ensure_ascii=False,
+                allow_nan=False
             )
 
             # JSON 한 메시지의 끝을 \n으로 표시
