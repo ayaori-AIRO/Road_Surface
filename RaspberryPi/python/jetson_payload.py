@@ -31,4 +31,6 @@ def build_payload(result, context, sample_time, now):
         "prediction_status": status,
         "sensor_age_ms": ages,
         "prediction_age_ms": prediction_age,
+        "cycle_id": context.get("imu", {}).get("cycle_id"),
+        "sensor_read_ms": {name: item["read_ms"] for name, item in context.items()},
     }

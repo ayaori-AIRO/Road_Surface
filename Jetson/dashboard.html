@@ -10,7 +10,7 @@
 <div class="notice">시험 운전 · 현재 송신 설정은 가상 거리·속도를 사용합니다. 적설 높이는 실제 적설 측정값이 아닙니다.</div>
 <div class="toolbar"><div><strong>시간별 추이</strong><div class="muted" style="font-size:12px;margin-top:6px">휠로 확대 · 드래그로 이동 · 그래프에 마우스를 올려 값 확인</div></div><div class="buttons"><button data-seconds="60">1분</button><button data-seconds="300" class="active">5분</button><button data-seconds="900">15분</button><button data-seconds="3600">1시간</button><button id="live" class="active">● 실시간</button></div></div>
 <div class="grid" id="charts"></div><div class="range"><span>과거</span><input id="position" aria-label="관측 이력 시간 이동" type="range" min="0" max="1000" value="1000"><span>최신</span></div>
-<footer><span>수신 목표 10 Hz · 온도/습도 갱신 약 1초 · 최근 1시간 메모리 보관</span><span id="summary">데이터 없음</span></footer></main>
+<footer><span>수신 목표 10 Hz · 동일 회차 센서 수집 목표 100ms · 최근 1시간 메모리 보관</span><span id="summary">데이터 없음</span></footer></main>
 <script>
 const specs=[['snow_height_mm','적설 높이','mm','#55dfbd','모델 예측'],['road_temperature_c','노면 온도','°C','#ffbd76','CT100'],['air_temperature_c','대기 온도','°C','#72b7ff','FTM02'],['humidity_pct','대기 습도','%','#b69aff','FTM02']];
 const $=id=>document.getElementById(id);let rows=[],after=0,span=300000,follow=true,end=Date.now(),last=null,serverOffset=0;

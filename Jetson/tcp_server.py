@@ -20,14 +20,18 @@ class Store:
         self.sequence = 0
         self.clients = 0
         self.invalid = 0
+        self.last_error = None
 
     def add(self, packet):
-        if not isinstance(packet, dict) or not all(k in packet for k in FIELDS):
-            raise ValueError('Expected the four telemetry fields')
+        if not isinstance(packet, dict):
+            raise ValueError('Expected a JSON object')
+        missing = [k for k in FIELDS if k not in packet]
+        if missing:
+            raise ValueError('Missing fields: ' + ', '.join(missing))
         row = {k: packet[k] for k in FIELDS}
-        for value in row.values():
+        for key, value in row.items():
             if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
-                raise ValueError('Measurements must be finite numbers or null')
+                raise ValueError(key + ': expected a finite number or null')
         row.update(timestamp=str(packet.get('timestamp', ''))[:80],
                    prediction_status=str(packet.get('prediction_status', 'unknown'))[:80],
                    received_ms=round(time.time()*1000))
@@ -40,6 +44,7 @@ class Store:
         with self.lock:
             return {'rows': [r for r in self.rows if r['id'] > after],
                     'connected': self.clients > 0, 'invalid': self.invalid,
+                    'last_error': self.last_error,
                     'latest': self.rows[-1] if self.rows else None, 'server_ms': round(time.time()*1000)}
 
 
@@ -63,11 +68,19 @@ class Receiver(socketserver.StreamRequestHandler):
                     break
                 if not raw.strip():
                     continue
+                packet = None
                 try:
-                    store.add(json.loads(raw))
-                except (ValueError, UnicodeError):
+                    packet = json.loads(raw)
+                    store.add(packet)
+                except (ValueError, UnicodeError) as error:
                     with store.lock:
                         store.invalid += 1
+                        store.last_error = {
+                            'reason': str(error),
+                            'received_fields': [str(k)[:80] for k in list(packet)[:30]] if isinstance(packet, dict) else [],
+                        }
+                        if store.invalid == 1 or store.invalid % 100 == 0:
+                            print('[REJECTED]', store.last_error, flush=True)
         except (ConnectionError, OSError):
             pass
         finally:

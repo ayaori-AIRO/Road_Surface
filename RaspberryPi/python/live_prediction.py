@@ -142,11 +142,20 @@ class Predictor:
 
 
 def input_values(event, speed_source, elapsed, max_ftm_age=3., max_speed_age=2.):
-    """Only values already received before IMU acquisition started are eligible."""
-    stamp = event["sample_time"]
+    """Use only this completed acquisition cycle, checked just before prediction."""
+    stamp = time.monotonic()
     context = event["context"]
+    for name in ("imu", "ftm02", "ct100") + (("gps",) if speed_source == "gps" else ()):
+        item = context.get(name)
+        if not item or item.get("cycle_id") != event.get("cycle_id"):
+            return None, {}, "cycle_mismatch"
+        if item["value"] is None:
+            return None, {}, name + "_missing"
+        if not all(math.isfinite(float(v)) for v in item["value"].values() if isinstance(v, (int, float))):
+            return None, {}, "invalid_input"
     ftm = context.get("ftm02")
-    ages = {}
+    ages = {name + "_ms": (stamp-item["received_monotonic"])*1000
+            for name, item in context.items()}
     if not ftm or ftm["value"] is None:
         return None, ages, "waiting_for_ftm02"
     ages["ftm02_ms"] = (stamp-ftm["received_monotonic"])*1000
