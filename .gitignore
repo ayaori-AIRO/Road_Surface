@@ -5,3 +5,7 @@
 # Generated Python bytecode.
 __pycache__/
 *.py[cod]
+
+# Keep prediction output directory, but exclude generated contents.
+/ML/dataset/predict_noise_snow/*
+!/ML/dataset/predict_noise_snow/.gitkeep

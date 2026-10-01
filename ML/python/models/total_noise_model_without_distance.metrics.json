@@ -1,0 +1,396 @@
+{
+  "model_type": "LinearRegression",
+  "selection_criterion": "lowest validation MAE; fixed candidates; no test/OOD selection",
+  "model_comparison": [
+    {
+      "model": "DummyMedian",
+      "fit_seconds": 0.03915000008419156,
+      "parameters": {
+        "constant": null,
+        "quantile": null,
+        "strategy": "median"
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.009485703959440827,
+        "rmse_m": 0.013590137685719306,
+        "r2": -0.00012392961446860973
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.009156808694573464,
+        "rmse_m": 0.013364870824121116,
+        "r2": -2.1779253829956602e-05
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.009513494738624862,
+        "rmse_m": 0.013608017841509218,
+        "r2": -0.006381340094661736
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.015360458303754897,
+        "rmse_m": 0.020558791214889686,
+        "r2": -0.08094644461043865
+      }
+    },
+    {
+      "model": "LinearRegression",
+      "fit_seconds": 0.009620899800211191,
+      "parameters": {
+        "copy_X": true,
+        "fit_intercept": true,
+        "n_jobs": null,
+        "positive": false,
+        "tol": 1e-06
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.0060307023440612385,
+        "rmse_m": 0.008523061098646487,
+        "r2": 0.6066335570339139
+      },
+      "selected": true,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.0065996746073308035,
+        "rmse_m": 0.009758138208202663,
+        "r2": 0.4668936479167195
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.007233059531514091,
+        "rmse_m": 0.009953680395979367,
+        "r2": 0.46155639997497544
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.02550081288165836,
+        "rmse_m": 0.02842630334304365,
+        "r2": -1.066568463367899
+      }
+    },
+    {
+      "model": "Ridge",
+      "fit_seconds": 0.010271499864757061,
+      "parameters": {
+        "alpha": 1.0,
+        "copy_X": true,
+        "fit_intercept": true,
+        "max_iter": null,
+        "positive": false,
+        "random_state": null,
+        "solver": "auto",
+        "tol": 0.0001
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006030901753697838,
+        "rmse_m": 0.008523291437152594,
+        "r2": 0.6066122950337651
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.0065997650382384095,
+        "rmse_m": 0.009758138269047,
+        "r2": 0.4668936412686271
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.007233134522388305,
+        "rmse_m": 0.009953785994363914,
+        "r2": 0.4615449752408717
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.025496781821976337,
+        "rmse_m": 0.028422583337254757,
+        "r2": -1.0660276161439395
+      }
+    },
+    {
+      "model": "KNeighbors",
+      "fit_seconds": 0.018004500307142735,
+      "parameters": {
+        "algorithm": "auto",
+        "leaf_size": 30,
+        "metric": "minkowski",
+        "metric_params": null,
+        "n_jobs": -1,
+        "n_neighbors": 15,
+        "p": 2,
+        "weights": "distance"
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006434912268446879,
+        "rmse_m": 0.009042138740914646,
+        "r2": 0.5572603288628257
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.0,
+        "rmse_m": 0.0,
+        "r2": 1.0
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.008433982344863604,
+        "rmse_m": 0.011373567773806971,
+        "r2": 0.2969822742239263
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.01214097988370084,
+        "rmse_m": 0.016260769813830057,
+        "r2": 0.32377498952577466
+      }
+    },
+    {
+      "model": "SVR_RBF",
+      "fit_seconds": 3.252868300303817,
+      "parameters": {
+        "C": 0.1,
+        "cache_size": 200,
+        "coef0": 0.0,
+        "degree": 3,
+        "epsilon": 0.001,
+        "gamma": "scale",
+        "kernel": "rbf",
+        "max_iter": -1,
+        "shrinking": true,
+        "tol": 0.001,
+        "verbose": false
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006434651468307503,
+        "rmse_m": 0.009341472076430738,
+        "r2": 0.5274619932187343
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.005518535501121589,
+        "rmse_m": 0.008673084888820012,
+        "r2": 0.5788593901284264
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.009122876723118966,
+        "rmse_m": 0.012530185434113142,
+        "r2": 0.1467273370627995
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.015407695151827473,
+        "rmse_m": 0.02060601663306708,
+        "r2": -0.08591821347226314
+      }
+    },
+    {
+      "model": "RandomForest",
+      "fit_seconds": 2.1507008001208305,
+      "parameters": {
+        "bootstrap": true,
+        "ccp_alpha": 0.0,
+        "criterion": "squared_error",
+        "max_depth": null,
+        "max_features": 1.0,
+        "max_leaf_nodes": null,
+        "max_samples": null,
+        "min_impurity_decrease": 0.0,
+        "min_samples_leaf": 2,
+        "min_samples_split": 2,
+        "min_weight_fraction_leaf": 0.0,
+        "monotonic_cst": null,
+        "n_estimators": 300,
+        "n_jobs": -1,
+        "oob_score": false,
+        "random_state": 42,
+        "verbose": 0,
+        "warm_start": false
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006061061182010524,
+        "rmse_m": 0.00852589851554412,
+        "r2": 0.606371601765152
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.002659511582210756,
+        "rmse_m": 0.004204588515375919,
+        "r2": 0.9010246771830996
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.007543684761819376,
+        "rmse_m": 0.010271697120195043,
+        "r2": 0.4266005849878457
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.010171549105086055,
+        "rmse_m": 0.013142466173298452,
+        "r2": 0.5582640337862597
+      }
+    },
+    {
+      "model": "ExtraTrees",
+      "fit_seconds": 0.6122188000008464,
+      "parameters": {
+        "bootstrap": false,
+        "ccp_alpha": 0.0,
+        "criterion": "squared_error",
+        "max_depth": null,
+        "max_features": 1.0,
+        "max_leaf_nodes": null,
+        "max_samples": null,
+        "min_impurity_decrease": 0.0,
+        "min_samples_leaf": 2,
+        "min_samples_split": 2,
+        "min_weight_fraction_leaf": 0.0,
+        "monotonic_cst": null,
+        "n_estimators": 300,
+        "n_jobs": -1,
+        "oob_score": false,
+        "random_state": 42,
+        "verbose": 0,
+        "warm_start": false
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006106981707096224,
+        "rmse_m": 0.008628720939882374,
+        "r2": 0.5968200258222629
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.002183760084958607,
+        "rmse_m": 0.00344183392055992,
+        "r2": 0.9336776741103496
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.007447382864211449,
+        "rmse_m": 0.010213687095127127,
+        "r2": 0.4330589115719118
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.010132056890442331,
+        "rmse_m": 0.013200116892435563,
+        "r2": 0.5543800973608191
+      }
+    },
+    {
+      "model": "HistGradientBoosting",
+      "fit_seconds": 1.7700036996975541,
+      "parameters": {
+        "categorical_features": "from_dtype",
+        "early_stopping": false,
+        "interaction_cst": null,
+        "l2_regularization": 1.0,
+        "learning_rate": 0.05,
+        "loss": "squared_error",
+        "max_bins": 255,
+        "max_depth": null,
+        "max_features": 1.0,
+        "max_iter": 300,
+        "max_leaf_nodes": 31,
+        "min_samples_leaf": 20,
+        "monotonic_cst": null,
+        "n_iter_no_change": 10,
+        "quantile": null,
+        "random_state": 42,
+        "scoring": "loss",
+        "tol": 1e-07,
+        "validation_fraction": 0.1,
+        "verbose": 0,
+        "warm_start": false
+      },
+      "validation": {
+        "rows": 3000,
+        "mae_m": 0.006172777621509851,
+        "rmse_m": 0.008682636009788268,
+        "r2": 0.5917658844089848
+      },
+      "selected": false,
+      "train": {
+        "rows": 8400,
+        "mae_m": 0.004505621013895834,
+        "rmse_m": 0.006573446381913799,
+        "r2": 0.7580831175477812
+      },
+      "test": {
+        "rows": 3000,
+        "mae_m": 0.007546518132824538,
+        "rmse_m": 0.010285950612374124,
+        "r2": 0.4250081286365113
+      },
+      "ood_test": {
+        "rows": 3600,
+        "mae_m": 0.009768538413144073,
+        "rmse_m": 0.01285383823848076,
+        "r2": 0.577453327974695
+      }
+    }
+  ],
+  "model_parameters": {
+    "copy_X": true,
+    "fit_intercept": true,
+    "n_jobs": null,
+    "positive": false,
+    "tol": 1e-06
+  },
+  "feature_columns": [
+    "speed_kmh",
+    "accel_x_g",
+    "accel_y_g",
+    "accel_z_g",
+    "gyro_x_dps",
+    "gyro_y_dps",
+    "gyro_z_dps",
+    "temperature_c",
+    "humidity_pct"
+  ],
+  "target_name": "target_total_noise_m",
+  "target_column": "target_total_noise_m",
+  "reference_distance_m": 3.1715,
+  "target_unit": "m",
+  "source_file": "D:\\Projects\\Road_Surface\\ML\\dataset\\GPT_ML_data\\RoadSurf_Synthetic_Labeled_v1_resaved.xlsx",
+  "source_sheet": "합성 데이터",
+  "valid_rows": 18000,
+  "dropped_invalid_target_rows": 0,
+  "training_rows": 8400,
+  "training_split": "train",
+  "validation_metrics": {
+    "validation": {
+      "rows": 3000,
+      "mae_m": 0.0060307023440612385,
+      "rmse_m": 0.008523061098646487,
+      "r2": 0.6066335570339139
+    },
+    "test": {
+      "rows": 3000,
+      "mae_m": 0.007233059531514091,
+      "rmse_m": 0.009953680395979367,
+      "r2": 0.46155639997497544
+    },
+    "ood_test": {
+      "rows": 3600,
+      "mae_m": 0.02550081288165836,
+      "rmse_m": 0.02842630334304365,
+      "r2": -1.066568463367899
+    }
+  },
+  "sklearn_version": "1.9.0",
+  "limitation": "Metrics evaluate ground truth noise prediction on synthetic data. Performance on real measurements has not been evaluated."
+}
