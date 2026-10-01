@@ -1,6 +1,7 @@
 import serial
 import pynmea2
 import time
+import math
 
 
 # ==========================================
@@ -131,6 +132,33 @@ def close():
             gps_serial.close()
 
         gps_serial = None
+
+
+def read_speed(timeout=1.0):
+    """Read a valid RMC speed (knots -> km/h). Use a single reader per port."""
+    try:
+        connect()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            line = gps_serial.readline().decode("ascii", errors="ignore").strip()
+            if not (line.startswith("$GPRMC,") or line.startswith("$GNRMC,")):
+                continue
+            try:
+                msg = pynmea2.parse(line, check=True)
+                if msg.status != "A" or msg.spd_over_grnd in (None, ""):
+                    return None
+                speed = float(msg.spd_over_grnd) * 1.852
+                if not math.isfinite(speed) or speed < 0:
+                    return None
+                return {"fix": True, "speed_kmh": speed,
+                        "latitude": msg.latitude, "longitude": msg.longitude,
+                        "gps_time_utc": str(msg.timestamp)}
+            except (pynmea2.ParseError, ValueError, TypeError):
+                continue
+        return None
+    except Exception as e:
+        print(f"[GPS SPEED ERROR] {e}")
+        return None
 
 
 # ==========================================

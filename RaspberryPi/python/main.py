@@ -1,261 +1,156 @@
-import time
+"""Run from repo root: python3 -m RaspberryPi.python.main
+
+Offline smoke test: python -m RaspberryPi.python.main --simulate --no-tcp --duration 3
+Default: real FTM02/IMU, synthetic distance/speed, gyro inputs fixed to zero.
+"""
+import argparse
 from datetime import datetime
+import math
+from pathlib import Path
+from queue import Queue, Empty
+import threading
+import time
 
-import ct100
-import ftm02
-import gps
-import imu
-import bme280
+if __package__:
+    from .live_prediction import Predictor, Latest, poll_sensor, input_values, replace_latest
+    from .tcp_client import TCPClient
+else:
+    from live_prediction import Predictor, Latest, poll_sensor, input_values, replace_latest
+    from tcp_client import TCPClient
 
-from tcp_client import TCPClient
-
-
-# ==========================================
-# Jetson TCP 설정
-# ==========================================
-
-JETSON_IP = "192.168.1.163"   # ← Jetson 실제 IP로 변경
+JETSON_IP = "192.168.1.163"
 JETSON_PORT = 5000
+MODEL_PATH = Path(__file__).resolve().parents[2] / "ML/python/models/total_noise_model_accel_history_complete.joblib"
+
+
+def simulated_readers():
+    start = time.monotonic()
+    def imu_read():
+        t = time.monotonic()-start
+        return {"acc": {"x": (1.039+.025*math.sin(2*math.pi*.65*t))*9.80665,
+                        "y": .05*9.80665, "z": .038*9.80665},
+                "gyro": dict(x=0., y=0., z=0.),
+                "angle": dict(roll=0., pitch=0., yaw=0.)}
+    return {"imu": (imu_read, .1),
+            "ftm02": (lambda: dict(temperature=15.5, humidity=23.), 1.),
+            "gps": (lambda: dict(fix=True, speed_kmh=30.), .5)}
+
+
+def transmit(tcp, queue, stop):
+    try:
+        while not stop.is_set():
+            try:
+                payload = queue.get(timeout=.2)
+            except Empty:
+                continue
+            tcp.send(payload)
+    finally:
+        tcp.close()
 
 
 def main():
-
-    print("==============================================")
-    print("          Road Surface Sensor System")
-    print("==============================================")
-
-    tcp = TCPClient(
-        JETSON_IP,
-        JETSON_PORT
-    )
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", type=Path, default=MODEL_PATH)
+    parser.add_argument("--speed-source", choices=["synthetic", "gps"], default="synthetic")
+    parser.add_argument("--simulate", action="store_true")
+    parser.add_argument("--no-tcp", action="store_true")
+    parser.add_argument("--duration", type=float, default=0, help="0 runs until Ctrl+C")
+    parser.add_argument("--aux-sensors", action="store_true", help="also poll CT100 and BME280")
+    args = parser.parse_args()
+    predictor = Predictor(args.model)
+    cleanup = []
+    if args.simulate:
+        readers = simulated_readers()
+    else:
+        if __package__:
+            from . import ftm02, imu, gps
+        else:
+            import ftm02, imu, gps
+        readers = {"imu": (imu.read, .1), "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1)}
+        cleanup = [imu.close, gps.close]
+        if args.aux_sensors:
+            if __package__:
+                from . import ct100, bme280
+            else:
+                import ct100, bme280
+            readers.update(ct100=(ct100.read, 1.), bme280=(bme280.read, 1.))
+    latest, stop = Latest(), threading.Event()
+    samples, outgoing = Queue(maxsize=2), Queue(maxsize=1)
+    threads = []
+    start = time.monotonic()
+    print("10 Hz IMU / 1s history model / reference 3.1715 m")
+    print(f"Speed: {args.speed_source}; distance: SYNTHETIC; model gyro: ZERO")
+    print("Sensor ages are time since receipt, not hardware measurement age.")
+    if args.simulate:
+        print("SIMULATED SENSORS: pipeline test only")
+    counts = dict(samples=0, predicted=0, waiting=0)
+    last_print = -math.inf
     try:
-
-        while True:
-
-            # ==========================================
-            # 센서 데이터 읽기
-            # ==========================================
-
-            ct_data = ct100.read()
-            ftm_data = ftm02.read()
-            bme_data = bme280.read()
-            gps_data = gps.read()
-            imu_data = imu.read()
-
-            now = datetime.now()
-
-            # ==========================================
-            # 전송 데이터 생성
-            # ==========================================
-
-            sensor_data = {
-
-                "timestamp":
-                    now.isoformat(timespec="milliseconds"),
-
-                "ct100":
-                    ct_data,
-
-                "ftm02":
-                    ftm_data,
-
-                "bme280":
-                    bme_data,
-
-                "gps":
-                    gps_data,
-
-                "imu":
-                    imu_data
-            }
-
-            # ==========================================
-            # 화면 출력
-            # ==========================================
-
-            print()
-            print("==============================================")
-            print(
-                "TIME :",
-                now.strftime("%Y-%m-%d %H:%M:%S")
-            )
-            print("==============================================")
-
-            # CT100
-            print("[ CT-100N-CL420 ]")
-
-            if ct_data is not None:
-
-                print(
-                    f"Temperature : "
-                    f"{ct_data['temperature']:.2f} °C"
-                )
-
-                print(
-                    f"Current     : "
-                    f"{ct_data['current']:.3f} mA"
-                )
-
+        for name, (reader, period) in readers.items():
+            thread = threading.Thread(target=poll_sensor,
+                args=(name, reader, period, latest, stop, samples if name == "imu" else None),
+                name=name, daemon=True)
+            thread.start()
+            threads.append(thread)
+        if not args.no_tcp:
+            thread = threading.Thread(target=transmit,
+                args=(TCPClient(JETSON_IP,JETSON_PORT), outgoing, stop), daemon=True)
+            thread.start()
+            threads.append(thread)
+        while not args.duration or time.monotonic()-start < args.duration:
+            try:
+                event = samples.get(timeout=.2)
+            except Empty:
+                continue
+            counts["samples"] += 1
+            stamp = event["sample_time"]
+            base, ages, status = input_values(event, args.speed_source, stamp-start)
+            if event["value"] is None:
+                predictor.reset()
+                result = {"status": "imu_missing"}
+            elif time.monotonic()-stamp > .2:
+                predictor.reset()
+                result = {"status": "imu_processing_late"}
             else:
-                print("No Data")
-
-            print()
-
-            # FTM02
-            print("[ BT-FTM02 ]")
-
-            if ftm_data is not None:
-
-                print(
-                    f"Humidity Voltage    : "
-                    f"{ftm_data['humidity_voltage']:.3f} V  "
-                    f"Humidity: {ftm_data['humidity']:.2f} %RH"
-                )
-
-                print(
-                    f"Temperature Voltage : "
-                    f"{ftm_data['temperature_voltage']:.3f} V  "
-                    f"Temperature: {ftm_data['temperature']:.2f} \u00b0C"
-                )
-
-            else:
-                print("No Data")
-
-            print()
-
-            # BME280
-            print("[ BME280 ]")
-
-            if bme_data is not None:
-
-                print(
-                    f"Temperature : "
-                    f"{bme_data['temperature']:.2f} °C"
-                )
-
-                print(
-                    f"Humidity    : "
-                    f"{bme_data['humidity']:.2f} %RH"
-                )
-
-                print(
-                    f"Pressure    : "
-                    f"{bme_data['pressure']:.2f} hPa"
-                )
-
-            else:
-                print("No Data")
-
-            print()
-
-            # GPS
-            print("[ BU-353N GPS ]")
-
-            if gps_data is None:
-
-                print("GPS 데이터 수신 없음")
-
-            elif not gps_data["fix"]:
-
-                print("GPS Fix 없음")
-
-                print(
-                    f"Satellites : "
-                    f"{gps_data['satellites']}"
-                )
-
-                print(
-                    f"Quality    : "
-                    f"{gps_data['quality']}"
-                )
-
-            else:
-
-                print(
-                    f"Latitude   : "
-                    f"{gps_data['latitude']:.6f}"
-                )
-
-                print(
-                    f"Longitude  : "
-                    f"{gps_data['longitude']:.6f}"
-                )
-
-                print(
-                    f"Altitude   : "
-                    f"{gps_data['altitude']:.1f} m"
-                )
-
-                print(
-                    f"Satellites : "
-                    f"{gps_data['satellites']}"
-                )
-
-                print(
-                    f"Quality    : "
-                    f"{gps_data['quality']}"
-                )
-
-            print()
-
-            # IMU
-            print("[ WT901C485 IMU ]")
-
-            if imu_data is not None:
-
-                print(
-                    "ACC   : "
-                    f"X={imu_data['acc']['x']:.3f} "
-                    f"Y={imu_data['acc']['y']:.3f} "
-                    f"Z={imu_data['acc']['z']:.3f} m/s²"
-                )
-
-                print(
-                    "GYRO  : "
-                    f"X={imu_data['gyro']['x']:.2f} "
-                    f"Y={imu_data['gyro']['y']:.2f} "
-                    f"Z={imu_data['gyro']['z']:.2f} °/s"
-                )
-
-                print(
-                    "ANGLE : "
-                    f"Roll={imu_data['angle']['roll']:.2f}° "
-                    f"Pitch={imu_data['angle']['pitch']:.2f}° "
-                    f"Yaw={imu_data['angle']['yaw']:.2f}°"
-                )
-
-            else:
-                print("No Data")
-
-            # ==========================================
-            # Jetson으로 TCP 전송
-            # ==========================================
-
-            if tcp.send(sensor_data):
-
-                print()
-                print("[TCP] Sensor Data 전송 완료")
-
-            else:
-
-                print()
-                print("[TCP] Sensor Data 전송 실패")
-
-            print("==============================================")
-
-            time.sleep(1)
-
+                acc = event["value"]["acc"]
+                predictor.add(stamp, [acc[a]/9.80665 for a in "xyz"])
+                if base is not None:
+                    base.update({f"accel_{a}_g": acc[a]/9.80665 for a in "xyz"})
+                result = predictor.predict(base) if base is not None else {"status": status}
+            counts["predicted" if result["status"] == "ok" else "waiting"] += 1
+            elapsed = time.monotonic()-stamp
+            payload = {"timestamp": datetime.now().isoformat(timespec="milliseconds"),
+                       "sample_elapsed_s": stamp-start,
+                       "imu": event["value"], "ftm02": event["context"].get("ftm02",{}).get("value"),
+                       "gps": event["context"].get("gps",{}).get("value"),
+                       "model_input": base, "prediction": result,
+                       "sources": {"distance": "synthetic", "speed": args.speed_source,
+                                   "gyro": "fixed_zero", "imu": "simulated" if args.simulate else "sensor"},
+                       "timing": {"imu_read_ms": event["read_ms"], "imu_interval_ms": event["interval_ms"],
+                                  "sensor_age_ms": ages, "sample_to_result_ms": elapsed*1000}}
+            if not args.no_tcp:
+                replace_latest(outgoing, payload)
+            if time.monotonic()-last_print >= 1.:
+                print(f"\n{payload['timestamp']} | IMU interval={event['interval_ms']} ms | read={event['read_ms']:.3f} ms")
+                print("Sensor age (ms):", ages)
+                for name, item in latest.snapshot().items():
+                    print(f"{name.upper()}: read={item['read_ms']:.3f} ms | {item['value']}")
+                print("Model inputs:", base)
+                print("Prediction:", result)
+                print(f"Sample to result: {elapsed*1000:.3f} ms")
+                last_print = time.monotonic()
     except KeyboardInterrupt:
-
-        print("\n프로그램 종료")
-
+        print("Stopped")
     finally:
-
-        tcp.close()
-
-        gps.close()
-        imu.close()
+        stop.set()
+        for thread in threads:
+            thread.join(timeout=5.)
+        # Do not close a port while its reader is still running.
+        if not any(t.is_alive() for t in threads if t.name in ("imu","gps")):
+            for close in cleanup:
+                close()
+        predictor.close()
+        print("Totals:", counts)
 
 
 if __name__ == "__main__":

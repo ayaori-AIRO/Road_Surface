@@ -9,11 +9,11 @@
 import time
 from datetime import datetime
 
-import ct100
-import ftm02
-import bme280
-import gps
-import imu
+import RaspberryPi.python.ct100 as ct100
+import RaspberryPi.python.ftm02 as ftm02
+import RaspberryPi.python.bme280 as bme280
+import RaspberryPi.python.gps as gps
+import RaspberryPi.python.imu as imu
 
 
 def collect():

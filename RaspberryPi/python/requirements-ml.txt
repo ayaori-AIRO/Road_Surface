@@ -1,0 +1,9 @@
+# Use the same scikit-learn version as the saved model artifact.
+scikit-learn==1.9.0
+joblib
+numpy
+pandas
+threadpoolctl
+# Sensor dependencies (install on Raspberry Pi).
+pyserial
+pynmea2
