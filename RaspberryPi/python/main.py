@@ -48,6 +48,65 @@ def transmit(tcp, queue, stop):
         tcp.close()
 
 
+def format_status(payload, sensors):
+    """Round console values only; retain full precision in the TCP payload."""
+    def number(value, digits=1):
+        return "--" if value is None else f"{value:.{digits}f}"
+
+    def axes(values, names, digits):
+        return "  ".join(f"{axis.upper()}={number(values.get(axis), digits):>8}" for axis in names)
+
+    result, timing = payload["prediction"], payload["timing"]
+    labels = {"ok": "정상", "warming_up": "이력 수집 중",
+              "imu_missing": "IMU 수신 없음", "imu_processing_late": "IMU 처리 지연",
+              "waiting_for_ftm02": "온습도 수신 대기", "ftm02_stale": "온습도 갱신 지연",
+              "waiting_for_gps_speed": "GPS 속도 수신 대기", "gps_speed_stale": "GPS 갱신 지연",
+              "invalid_input": "입력값 오류"}
+    status = labels.get(result["status"], result["status"])
+    if result["status"] == "warming_up":
+        status += f" ({result['samples']}/{result['required_samples']})"
+    lines = ["", "=" * 76, f"{payload['timestamp'].replace('T', ' ')}  |  예측: {status}"]
+    if result["status"] == "ok":
+        lines += [f"  적설 높이  {result['predicted_snow_height_m']*1000:9.2f} mm"
+                  f"    예측 노이즈  {result['predicted_total_noise_m']*1000:+9.2f} mm",
+                  f"  보정 거리  {result['corrected_distance_m']:9.4f} m"]
+    lines += ["-" * 76, "[센서 | 이번 IMU 샘플 및 샘플 시작 전 수신값]"]
+    imu = payload["imu"]
+    if imu:
+        lines += ["  가속도 (m/s2) " + axes(imu.get("acc", {}), "xyz", 3),
+                  "  각속도 (deg/s) " + axes(imu.get("gyro", {}), "xyz", 2),
+                  "  자세   (deg)  " + axes(imu.get("angle", {}), ("roll", "pitch", "yaw"), 2)]
+    else:
+        lines.append("  IMU     수신 없음")
+    ftm, gps = payload["ftm02"], payload["gps"]
+    lines.append("  온습도  " + (f"온도 {number(ftm.get('temperature'))} C  |  습도 {number(ftm.get('humidity'))} %" if ftm else "수신 없음"))
+    lines.append("  GPS     " + (f"속도 {number(gps.get('speed_kmh'))} km/h  |  fix={gps.get('fix', '--')}" if gps else "수신 없음"))
+    base, sources = payload["model_input"], payload["sources"]
+    speed_source = "가상" if sources["speed"] == "synthetic" else "GPS"
+    lines.append(f"[모델 입력 | 거리: 가상 / 속도: {speed_source} / 각속도: 0 고정]")
+    if base:
+        lines += [f"  거리 {base['distance_measured_m']:.4f} m  |  속도 {base['speed_kmh']:.1f} km/h",
+                  "  가속도 (g)    " + axes({a: base.get(f"accel_{a}_g") for a in "xyz"}, "xyz", 4)]
+    else:
+        lines.append("  입력 준비 중")
+    lines += ["[처리 시간]",
+              f"  IMU 주기 {number(timing['imu_interval_ms'])} ms  |  읽기 {number(timing['imu_read_ms'])} ms"
+              f"  |  결과까지 {number(timing['sample_to_result_ms'])} ms"]
+    if result["status"] == "ok":
+        lines.append(f"  특징 계산 {number(result['feature_ms'])} ms  |  추론 {number(result['inference_ms'])} ms")
+    ages = timing["sensor_age_ms"]
+    if ages:
+        lines.append("  수신 후 경과: " + "  |  ".join(f"{name.removesuffix('_ms').upper()} {value:.0f} ms" for name, value in ages.items()))
+    for name, item in sorted(sensors.items()):
+        if name != "imu":
+            lines.append(f"  {name.upper():6} 최근 읽기 {number(item['read_ms'])} ms")
+        if name not in ("imu", "gps", "ftm02"):
+            value = item["value"]
+            detail = "  |  ".join(f"{k}={number(v, 3) if isinstance(v, (int, float)) else v}" for k, v in value.items()) if isinstance(value, dict) else str(value)
+            lines.append(f"          {detail}")
+    return "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, default=MODEL_PATH)
@@ -131,13 +190,7 @@ def main():
             if not args.no_tcp:
                 replace_latest(outgoing, payload)
             if time.monotonic()-last_print >= 1.:
-                print(f"\n{payload['timestamp']} | IMU interval={event['interval_ms']} ms | read={event['read_ms']:.3f} ms")
-                print("Sensor age (ms):", ages)
-                for name, item in latest.snapshot().items():
-                    print(f"{name.upper()}: read={item['read_ms']:.3f} ms | {item['value']}")
-                print("Model inputs:", base)
-                print("Prediction:", result)
-                print(f"Sample to result: {elapsed*1000:.3f} ms")
+                print(format_status(payload, latest.snapshot()))
                 last_print = time.monotonic()
     except KeyboardInterrupt:
         print("Stopped")
