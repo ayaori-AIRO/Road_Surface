@@ -44,8 +44,23 @@ class CycleTests(unittest.TestCase):
             first, second = next(gen), next(gen)
             self.assertGreaterEqual(first['acquisition_ms'], 100)
             self.assertGreaterEqual(second['cycle_start'], first['ready_time'])
-            board = first['context']
-            self.assertGreaterEqual(board['ct100']['started_monotonic'], board['ftm02']['received_monotonic'])
+        finally:
+            gen.close()
+
+    def test_all_three_sensors_read_concurrently(self):
+        barrier = threading.Barrier(3, timeout=2.)
+        def read():
+            barrier.wait()
+            return dict(temperature=1., humidity=30.)
+        readers = {name: (read, .1) for name in ('imu', 'ftm02', 'ct100')}
+        gen = acquire_cycles(readers, threading.Event())
+        try:
+            event = next(gen)
+            items = list(event['context'].values())
+            self.assertTrue(all(item['value'] is not None for item in items))
+            # All three calls must start before any call can finish.
+            self.assertLessEqual(max(i['started_monotonic'] for i in items),
+                                 min(i['received_monotonic'] for i in items))
         finally:
             gen.close()
 

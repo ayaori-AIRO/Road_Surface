@@ -5,9 +5,8 @@ import time
 
 
 def acquire_cycles(readers, stop, duration=0, period=.1):
-    # CT100 and FTM02 access the same megaind board: serialize their I/O.
-    groups = [[n for n in ("ftm02", "ct100") if n in readers]]
-    groups += [[n] for n in readers if n not in ("ftm02", "ct100")]
+    # Every sensor has its own worker, including FTM02 and CT100.
+    groups = [[name] for name in readers]
 
     def read_group(names, cycle_id):
         items = {}
