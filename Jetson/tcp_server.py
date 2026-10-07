@@ -31,6 +31,8 @@ class Store:
         if missing:
             raise ValueError('Missing fields: ' + ', '.join(missing))
         row = {k: packet[k] for k in FIELDS}
+        # Older Raspberry Pi senders may omit BME280 pressure.
+        row['pressure_hpa'] = packet.get('pressure_hpa')
         for key, value in row.items():
             if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
                 raise ValueError(key + ': expected a finite number or null')

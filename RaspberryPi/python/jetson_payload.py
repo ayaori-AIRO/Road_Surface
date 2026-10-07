@@ -17,6 +17,7 @@ def build_payload(result, context, sample_time, now):
         return item["value"]
 
     road, air = sensor("ct100"), sensor("ftm02")
+    environment = sensor("bme280")
     prediction_age = (now - sample_time) * 1000
     status = result["status"]
     if status == "ok" and not 0 <= prediction_age <= 2000:
@@ -28,6 +29,7 @@ def build_payload(result, context, sample_time, now):
         "road_temperature_c": finite(road.get("temperature")),
         "air_temperature_c": finite(air.get("temperature")),
         "humidity_pct": finite(air.get("humidity")),
+        "pressure_hpa": finite(environment.get("pressure")),
         "prediction_status": status,
         "sensor_age_ms": ages,
         "prediction_age_ms": prediction_age,
