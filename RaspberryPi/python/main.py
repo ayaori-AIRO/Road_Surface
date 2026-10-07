@@ -28,22 +28,44 @@ MODEL_PATH = Path(__file__).resolve().parents[2] / "ML/python/models/total_noise
 CYCLE_SECONDS = 1.0
 
 
-def collect_imu_history(read, stop, samples):
-    """Keep the model's 10 Hz inputs within each one-second batch."""
-    samples.clear()
-    start = time.monotonic()
-    value = None
-    for index in range(10):
-        if stop.wait(max(0., start + index * .1 - time.monotonic())):
-            break
-        stamp = time.monotonic()
-        try:
-            value = read()
-        except Exception as error:
-            print(f"[IMU ERROR] {error}")
-            value = None
-        samples.append((stamp, value))
-    return value
+class ContinuousImu:
+    """One serial reader; the prediction thread consumes timestamped history."""
+    def __init__(self, read, stop):
+        from collections import deque
+        self.reader, self.stop = read, stop
+        self.lock = threading.Lock()
+        self.samples = deque(maxlen=1000)
+        self.selected = []
+
+    def run(self):
+        deadline = time.monotonic()
+        while not self.stop.wait(max(0., deadline-time.monotonic())):
+            stamp = time.monotonic()
+            try:
+                value = self.reader()
+            except Exception as error:
+                print(f"[IMU ERROR] {error}")
+                value = None
+            with self.lock:
+                self.samples.append((stamp, time.monotonic(), value))
+            deadline += .1
+            now = time.monotonic()
+            if deadline < now:
+                deadline += (math.floor((now-deadline)/.1)+1)*.1
+
+    def read(self):
+        # Select a genuinely new sample from this acquisition cycle.
+        start = time.monotonic()
+        self.selected = []
+        while not self.stop.is_set():
+            with self.lock:
+                if self.samples and self.samples[-1][0] >= start:
+                    self.selected = list(self.samples)
+                    return self.selected[-1][2]
+            if time.monotonic()-start >= .3:
+                return None
+            self.stop.wait(.002)
+        return None
 
 
 def simulated_readers():
@@ -62,24 +84,21 @@ def simulated_readers():
 
 
 def transmit(tcp, queue, stop):
-    deadline = time.monotonic()
+    """Send each completed batch at its own cycle-start + 1000 ms deadline."""
     try:
         while not stop.is_set():
-            if stop.wait(max(0., deadline - time.monotonic())):
-                break
-            if not tcp.connect():
-                stop.wait(1.)
-                continue
             try:
-                result, context, stamp = queue.get(timeout=.2)
+                result, context, stamp, deadline = queue.get(timeout=.2)
             except Empty:
                 continue
-            # The bounded queue keeps the newest result during network delays.
+            if not tcp.connect():
+                continue
+            if stop.wait(max(0., deadline-time.monotonic())):
+                break
+            # Do not replay a missed cycle after a long network outage.
+            if time.monotonic() >= deadline + CYCLE_SECONDS:
+                continue
             tcp.send(build_payload(result, context, stamp, time.monotonic()))
-            deadline += CYCLE_SECONDS
-            now = time.monotonic()
-            if deadline < now:
-                deadline += (math.floor((now - deadline) / CYCLE_SECONDS) + 1) * CYCLE_SECONDS
     finally:
         tcp.close()
 
@@ -132,7 +151,7 @@ def format_status(payload, sensors):
         lines.append("  입력 준비 중")
     lines += ["[처리 시간]",
               f"  회차 {timing['cycle_id']}  |  전체 수집 {number(timing['acquisition_ms'])} ms",
-              f"  회차 주기 {number(timing['imu_interval_ms'])} ms  |  IMU 이력 수집 {number(timing['imu_read_ms'])} ms"
+              f"  회차 주기 {number(timing['imu_interval_ms'])} ms  |  IMU 새 샘플 대기 {number(timing['imu_read_ms'])} ms"
               f"  |  결과까지 {number(timing['sample_to_result_ms'])} ms"]
     if result["status"] == "ok":
         lines.append(f"  특징 계산 {number(result['feature_ms'])} ms  |  추론 {number(result['inference_ms'])} ms")
@@ -175,21 +194,26 @@ def main():
     if args.speed_source != "gps":
         readers.pop("gps", None)
     stop = threading.Event()
-    imu_samples = []
-    imu_read = readers["imu"][0]
-    readers["imu"] = (lambda: collect_imu_history(imu_read, stop, imu_samples), CYCLE_SECONDS)
+    continuous_imu = ContinuousImu(readers["imu"][0], stop)
+    readers["imu"] = (continuous_imu.read, CYCLE_SECONDS)
+    last_imu_stamp = -math.inf
     outgoing = Queue(maxsize=1)
     threads = []
     start = time.monotonic()
     print("1 Hz acquisition/prediction/TCP / 10 Hz IMU history / reference 3.1715 m")
     print(f"Speed: {args.speed_source}; distance: SYNTHETIC; model gyro: ZERO")
     print("Same-cycle acquisition: fresh IMU/FTM02/CT100/BME280 before each prediction.")
-    print("1000 ms target includes acquisition and prediction; late cycles are skipped.")
+    print("Acquisition target: 300 ms; ML before 1000 ms; send at cycle start + 1000 ms.")
     if args.simulate:
         print("SIMULATED SENSORS: pipeline test only")
     counts = dict(samples=0, predicted=0, waiting=0)
-    last_print = -math.inf
     try:
+        imu_thread = threading.Thread(target=continuous_imu.run, name="imu", daemon=True)
+        imu_thread.start()
+        threads.append(imu_thread)
+        print("Collecting initial IMU history for 1 second...")
+        if stop.wait(1.):
+            return
         if not args.no_tcp:
             thread = threading.Thread(target=transmit,
                 args=(TCPClient(JETSON_IP,JETSON_PORT), outgoing, stop), daemon=True)
@@ -199,8 +223,16 @@ def main():
         for event in cycles:
             counts["samples"] += 1
             stamp = event["sample_time"]
+            if continuous_imu.selected:
+                imu_stamp, received, _ = continuous_imu.selected[-1]
+                event["context"]["imu"].update(started_monotonic=imu_stamp,
+                                                received_monotonic=received,
+                                                read_ms=(received-imu_stamp)*1000)
             base, ages, status = input_values(event, args.speed_source, stamp-start)
-            for imu_stamp, imu_value in imu_samples:
+            for imu_stamp, received, imu_value in continuous_imu.selected:
+                if imu_stamp <= last_imu_stamp:
+                    continue
+                last_imu_stamp = imu_stamp
                 if imu_value is None:
                     predictor.reset()
                 else:
@@ -209,7 +241,6 @@ def main():
                 predictor.reset()
                 result = {"status": "imu_missing"}
             elif time.monotonic()-event["cycle_start"] > CYCLE_SECONDS:
-                predictor.reset()
                 result = {"status": "cycle_late"}
             else:
                 acc = event["value"]["acc"]
@@ -217,7 +248,6 @@ def main():
                     base.update({f"accel_{a}_g": acc[a]/9.80665 for a in "xyz"})
                 result = predictor.predict(base) if base is not None else {"status": status}
             if time.monotonic()-event["cycle_start"] > CYCLE_SECONDS:
-                predictor.reset()
                 result = {"status": "cycle_late"}
             counts["predicted" if result["status"] == "ok" else "waiting"] += 1
             elapsed = time.monotonic()-stamp
@@ -233,10 +263,11 @@ def main():
                                   "acquisition_ms": event["acquisition_ms"], "cycle_id": event["cycle_id"],
                                   "sensor_age_ms": ages, "sample_to_result_ms": elapsed*1000}}
             if not args.no_tcp:
-                replace_latest(outgoing, (result, event["context"], stamp))
-            if time.monotonic()-last_print >= 1.:
-                print(format_status(payload, event["context"]))
-                last_print = time.monotonic()
+                replace_latest(outgoing, (result, event["context"], event["cycle_start"],
+                                          event["cycle_start"] + CYCLE_SECONDS))
+            if event["acquisition_ms"] > 300:
+                print("[수집 지연] 300ms 목표 초과")
+            print(format_status(payload, event["context"]))
     except KeyboardInterrupt:
         print("Stopped")
     finally:
