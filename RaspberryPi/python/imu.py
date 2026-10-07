@@ -10,6 +10,18 @@ SLAVE_ID = 0x50
 G = 9.80665
 
 imu_serial = None
+_last_diagnostic = {}
+
+
+def report_invalid(reason, response):
+    """Report each failure category at most once a second."""
+    now = time.monotonic()
+    category = reason.split(':', 1)[0]
+    if now - _last_diagnostic.get(category, -float('inf')) >= 1.:
+        _last_diagnostic[category] = now
+        print(f"[IMU INVALID] {reason} | port={PORT} baud={BAUDRATE} "
+              f"bytes={len(response)}/31 | RX={response.hex(' ') or '(empty)'}", flush=True)
+    return None
 
 
 def modbus_crc(data):
@@ -93,16 +105,16 @@ def read():
         response = imu_serial.read(31)
 
         if len(response) != 31:
-            return None
+            return report_invalid('length: incomplete response / read timeout', response)
 
         if response[0] != SLAVE_ID:
-            return None
+            return report_invalid(f'address: expected 0x{SLAVE_ID:02x}, got 0x{response[0]:02x}', response)
 
         if response[1] != 0x03:
-            return None
+            return report_invalid(f'function: expected 0x03, got 0x{response[1]:02x}', response)
 
         if response[2] != 26:
-            return None
+            return report_invalid(f'byte_count: expected 26, got {response[2]}', response)
 
         received_crc = (
             response[-2]
@@ -114,7 +126,7 @@ def read():
         )
 
         if received_crc != calculated_crc:
-            return None
+            return report_invalid(f'crc: received 0x{received_crc:04x}, calculated 0x{calculated_crc:04x}', response)
 
         data = response[3:-2]
 

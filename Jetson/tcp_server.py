@@ -11,12 +11,14 @@ import threading
 import time
 
 FIELDS = ('snow_height_mm', 'road_temperature_c', 'air_temperature_c', 'humidity_pct')
+EXPECTED_INTERVAL_MS = 1000
 
 
 class Store:
     def __init__(self):
         self.lock = threading.Lock()
-        self.rows = deque(maxlen=36000)  # One hour at 10 Hz; memory only.
+        self.rows = deque(maxlen=3600)  # One hour at 1 Hz; memory only.
+        self.last_received = None
         self.sequence = 0
         self.clients = 0
         self.invalid = 0
@@ -35,7 +37,26 @@ class Store:
         row.update(timestamp=str(packet.get('timestamp', ''))[:80],
                    prediction_status=str(packet.get('prediction_status', 'unknown'))[:80],
                    received_ms=round(time.time()*1000))
+        cycle_id = packet.get('cycle_id')
+        if cycle_id is not None and (type(cycle_id) is not int or cycle_id < 0):
+            raise ValueError('cycle_id: expected a nonnegative integer or null')
+        row['cycle_id'] = cycle_id
+        def duration(value):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value) or value < 0):
+                raise ValueError('Timing: expected nonnegative finite milliseconds or null')
+            return value
+        row['prediction_age_ms'] = duration(packet.get('prediction_age_ms'))
+        for key in ('sensor_age_ms', 'sensor_read_ms'):
+            values = packet.get(key, {})
+            if not isinstance(values, dict):
+                raise ValueError(key + ': expected an object')
+            row[key] = {name: duration(value) for name, value in values.items()}
         with self.lock:
+            now = time.monotonic()
+            row['receive_interval_ms'] = ((now-self.last_received)*1000
+                                          if self.last_received is not None else None)
+            self.last_received = now
             self.sequence += 1
             row['id'] = self.sequence
             self.rows.append(row)
@@ -45,6 +66,7 @@ class Store:
             return {'rows': [r for r in self.rows if r['id'] > after],
                     'connected': self.clients > 0, 'invalid': self.invalid,
                     'last_error': self.last_error,
+                    'expected_interval_ms': EXPECTED_INTERVAL_MS,
                     'latest': self.rows[-1] if self.rows else None, 'server_ms': round(time.time()*1000)}
 
 
@@ -129,7 +151,7 @@ def main():
         tcp.store = web.store = store
         thread = threading.Thread(target=tcp.serve_forever, daemon=True)
         thread.start()
-        print(f'TCP :{args.port} | Dashboard http://localhost:{args.web_port}')
+        print(f'TCP :{args.port} | Expected interval: {EXPECTED_INTERVAL_MS} ms | Dashboard http://localhost:{args.web_port}')
         try:
             web.serve_forever()
         except KeyboardInterrupt:

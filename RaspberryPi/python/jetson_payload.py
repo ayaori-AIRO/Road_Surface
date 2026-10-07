@@ -19,7 +19,7 @@ def build_payload(result, context, sample_time, now):
     road, air = sensor("ct100"), sensor("ftm02")
     prediction_age = (now - sample_time) * 1000
     status = result["status"]
-    if not 0 <= prediction_age <= 300:
+    if status == "ok" and not 0 <= prediction_age <= 2000:
         status = "prediction_stale"
     snow = finite(result.get("predicted_snow_height_m")) if status == "ok" else None
     return {

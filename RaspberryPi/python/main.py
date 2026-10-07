@@ -1,7 +1,7 @@
 """Run from repo root: python3 -m RaspberryPi.python.main
 
 Offline smoke test: python -m RaspberryPi.python.main --simulate --no-tcp --duration 3
-Default: real CT100/FTM02/IMU, synthetic distance/speed, gyro inputs fixed to zero.
+Default: real CT100/FTM02/IMU/BME280, synthetic distance/speed, gyro inputs fixed to zero.
 """
 import argparse
 from datetime import datetime
@@ -25,6 +25,25 @@ else:
 JETSON_IP = "192.168.1.163"
 JETSON_PORT = 5000
 MODEL_PATH = Path(__file__).resolve().parents[2] / "ML/python/models/total_noise_model_accel_history_complete_pi.joblib"
+CYCLE_SECONDS = 1.0
+
+
+def collect_imu_history(read, stop, samples):
+    """Keep the model's 10 Hz inputs within each one-second batch."""
+    samples.clear()
+    start = time.monotonic()
+    value = None
+    for index in range(10):
+        if stop.wait(max(0., start + index * .1 - time.monotonic())):
+            break
+        stamp = time.monotonic()
+        try:
+            value = read()
+        except Exception as error:
+            print(f"[IMU ERROR] {error}")
+            value = None
+        samples.append((stamp, value))
+    return value
 
 
 def simulated_readers():
@@ -38,6 +57,7 @@ def simulated_readers():
     return {"imu": (imu_read, .1),
             "ct100": (lambda: dict(temperature=12.5), 1.),
             "ftm02": (lambda: dict(temperature=15.5, humidity=23.), 1.),
+            "bme280": (lambda: dict(temperature=15.5, humidity=23., pressure=1013.25), 1.),
             "gps": (lambda: dict(fix=True, speed_kmh=30.), .5)}
 
 
@@ -56,10 +76,10 @@ def transmit(tcp, queue, stop):
                 continue
             # The bounded queue keeps the newest result during network delays.
             tcp.send(build_payload(result, context, stamp, time.monotonic()))
-            deadline += .1
+            deadline += CYCLE_SECONDS
             now = time.monotonic()
             if deadline < now:
-                deadline += (math.floor((now - deadline) / .1) + 1) * .1
+                deadline += (math.floor((now - deadline) / CYCLE_SECONDS) + 1) * CYCLE_SECONDS
     finally:
         tcp.close()
 
@@ -74,7 +94,7 @@ def format_status(payload, sensors):
 
     result, timing = payload["prediction"], payload["timing"]
     labels = {"ok": "정상", "warming_up": "이력 수집 중",
-              "cycle_late": "회차 수집 지연 (100ms 초과)", "cycle_mismatch": "센서 회차 불일치",
+              "cycle_late": "수집·예측 지연 (1000ms 초과)", "cycle_mismatch": "센서 회차 불일치",
               "ftm02_missing": "온습도 수신 실패", "ct100_missing": "노면 온도 수신 실패",
               "gps_missing": "GPS 수신 실패",
               "imu_missing": "IMU 수신 없음", "imu_processing_late": "IMU 처리 지연",
@@ -112,7 +132,7 @@ def format_status(payload, sensors):
         lines.append("  입력 준비 중")
     lines += ["[처리 시간]",
               f"  회차 {timing['cycle_id']}  |  전체 수집 {number(timing['acquisition_ms'])} ms",
-              f"  IMU 주기 {number(timing['imu_interval_ms'])} ms  |  읽기 {number(timing['imu_read_ms'])} ms"
+              f"  회차 주기 {number(timing['imu_interval_ms'])} ms  |  IMU 이력 수집 {number(timing['imu_read_ms'])} ms"
               f"  |  결과까지 {number(timing['sample_to_result_ms'])} ms"]
     if result["status"] == "ok":
         lines.append(f"  특징 계산 {number(result['feature_ms'])} ms  |  추론 {number(result['inference_ms'])} ms")
@@ -136,7 +156,7 @@ def main():
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--no-tcp", action="store_true")
     parser.add_argument("--duration", type=float, default=0, help="0 runs until Ctrl+C")
-    parser.add_argument("--aux-sensors", action="store_true", help="also poll BME280")
+    parser.add_argument("--aux-sensors", action="store_true", help="compatibility option; BME280 is collected by default")
     args = parser.parse_args()
     predictor = Predictor(args.model)
     cleanup = []
@@ -144,29 +164,27 @@ def main():
         readers = simulated_readers()
     else:
         if __package__:
-            from . import ct100, ftm02, imu, gps
+            from . import ct100, ftm02, imu, gps, bme280
         else:
-            import ct100, ftm02, imu, gps
+            import ct100, ftm02, imu, gps, bme280
         readers = {"imu": (imu.read, .1), "ct100": (ct100.read, 1.),
-                   "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1)}
+                   "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1),
+                   "bme280": (bme280.read, 1.)}
         cleanup = [imu.close, gps.close]
-        if args.aux_sensors:
-            if __package__:
-                from . import bme280
-            else:
-                import bme280
-            readers.update(bme280=(bme280.read, 1.))
     # GPS participates only when its speed is actually used by the model.
     if args.speed_source != "gps":
         readers.pop("gps", None)
     stop = threading.Event()
+    imu_samples = []
+    imu_read = readers["imu"][0]
+    readers["imu"] = (lambda: collect_imu_history(imu_read, stop, imu_samples), CYCLE_SECONDS)
     outgoing = Queue(maxsize=1)
     threads = []
     start = time.monotonic()
-    print("10 Hz IMU / 1s history model / reference 3.1715 m")
+    print("1 Hz acquisition/prediction/TCP / 10 Hz IMU history / reference 3.1715 m")
     print(f"Speed: {args.speed_source}; distance: SYNTHETIC; model gyro: ZERO")
-    print("Same-cycle acquisition: fresh IMU/FTM02/CT100 before each prediction.")
-    print("100 ms target includes acquisition and prediction; late cycles are skipped.")
+    print("Same-cycle acquisition: fresh IMU/FTM02/CT100/BME280 before each prediction.")
+    print("1000 ms target includes acquisition and prediction; late cycles are skipped.")
     if args.simulate:
         print("SIMULATED SENSORS: pipeline test only")
     counts = dict(samples=0, predicted=0, waiting=0)
@@ -177,23 +195,30 @@ def main():
                 args=(TCPClient(JETSON_IP,JETSON_PORT), outgoing, stop), daemon=True)
             thread.start()
             threads.append(thread)
-        cycles = acquire_cycles(readers, stop, args.duration)
+        cycles = acquire_cycles(readers, stop, args.duration, period=CYCLE_SECONDS)
         for event in cycles:
             counts["samples"] += 1
             stamp = event["sample_time"]
             base, ages, status = input_values(event, args.speed_source, stamp-start)
+            for imu_stamp, imu_value in imu_samples:
+                if imu_value is None:
+                    predictor.reset()
+                else:
+                    predictor.add(imu_stamp, [imu_value["acc"][a]/9.80665 for a in "xyz"])
             if event["value"] is None:
                 predictor.reset()
                 result = {"status": "imu_missing"}
-            elif time.monotonic()-event["cycle_start"] > .1:
+            elif time.monotonic()-event["cycle_start"] > CYCLE_SECONDS:
                 predictor.reset()
                 result = {"status": "cycle_late"}
             else:
                 acc = event["value"]["acc"]
-                predictor.add(stamp, [acc[a]/9.80665 for a in "xyz"])
                 if base is not None:
                     base.update({f"accel_{a}_g": acc[a]/9.80665 for a in "xyz"})
                 result = predictor.predict(base) if base is not None else {"status": status}
+            if time.monotonic()-event["cycle_start"] > CYCLE_SECONDS:
+                predictor.reset()
+                result = {"status": "cycle_late"}
             counts["predicted" if result["status"] == "ok" else "waiting"] += 1
             elapsed = time.monotonic()-stamp
             payload = {"timestamp": datetime.now().isoformat(timespec="milliseconds"),
