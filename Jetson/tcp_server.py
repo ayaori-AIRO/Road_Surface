@@ -1,14 +1,16 @@
-"""TCP telemetry + dependency-free dashboard. Run: python3 Jetson/tcp_server.py"""
+"""TCP telemetry, JSON API and built React UI. Run: python3 Jetson/tcp_server.py"""
 import argparse
 from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import mimetypes
 from pathlib import Path
 import socketserver
 import threading
 import time
+import uuid
 
 FIELDS = ('snow_height_mm', 'road_temperature_c', 'air_temperature_c', 'humidity_pct')
 EXPECTED_INTERVAL_MS = 1000
@@ -19,6 +21,7 @@ class Store:
         self.lock = threading.Lock()
         self.rows = deque(maxlen=3600)  # One hour at 1 Hz; memory only.
         self.last_received = None
+        self.instance_id = uuid.uuid4().hex
         self.sequence = 0
         self.clients = 0
         self.invalid = 0
@@ -66,6 +69,7 @@ class Store:
     def snapshot(self, after):
         with self.lock:
             return {'rows': [r for r in self.rows if r['id'] > after],
+                    'instance_id': self.instance_id,
                     'connected': self.clients > 0, 'invalid': self.invalid,
                     'last_error': self.last_error,
                     'expected_interval_ms': EXPECTED_INTERVAL_MS,
@@ -115,7 +119,7 @@ class Receiver(socketserver.StreamRequestHandler):
 
 class Web(BaseHTTPRequestHandler):
     def do_GET(self):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import urlparse, parse_qs, unquote
         url = urlparse(self.path)
         if url.path == '/api/data':
             try:
@@ -125,12 +129,22 @@ class Web(BaseHTTPRequestHandler):
                 return
             data = json.dumps(self.server.store.snapshot(after), allow_nan=False).encode()
             kind = 'application/json'
-        elif url.path == '/':
-            data = Path(__file__).with_name('dashboard.html').read_bytes()
-            kind = 'text/html; charset=utf-8'
         else:
-            self.send_error(404)
-            return
+            root = self.server.ui_dir.resolve()
+            relative = unquote(url.path).lstrip('/') or 'index.html'
+            target = (root / relative).resolve()
+            if root not in target.parents:
+                self.send_error(403)
+                return
+            if not target.is_file():
+                if url.path == '/':
+                    self.send_error(503, 'React UI not built. Build Jetson/ui first; see Jetson/README.md.')
+                else:
+                    self.send_error(404)
+                return
+            data = target.read_bytes()
+            kind = {'.js': 'text/javascript', '.css': 'text/css'}.get(target.suffix)
+            kind = kind or mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
         self.send_response(200)
         self.send_header('Content-Type', kind)
         self.send_header('Cache-Control', 'no-store')
@@ -147,10 +161,12 @@ def main():
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=5000)
     parser.add_argument('--web-port', type=int, default=8080)
+    parser.add_argument('--ui-dir', type=Path, default=Path(__file__).parent / 'ui' / 'dist')
     args = parser.parse_args()
     store = Store()
     with TCPServer((args.host, args.port), Receiver) as tcp, ThreadingHTTPServer((args.host, args.web_port), Web) as web:
         tcp.store = web.store = store
+        web.ui_dir = args.ui_dir
         thread = threading.Thread(target=tcp.serve_forever, daemon=True)
         thread.start()
         print(f'TCP :{args.port} | Expected interval: {EXPECTED_INTERVAL_MS} ms | Dashboard http://localhost:{args.web_port}')

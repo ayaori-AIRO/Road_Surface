@@ -6,6 +6,7 @@
 __pycache__/
 *.py[cod]
 /.venv-pi/
+/.pnpm-store/
 
 # Keep prediction output directory, but exclude generated contents.
 /ML/dataset/predict_noise_snow/*
