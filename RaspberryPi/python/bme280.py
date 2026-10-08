@@ -3,6 +3,7 @@ import board
 import adafruit_bme280.basic as adafruit_bme280
 
 
+I2C_ADDRESS = 0x76
 bme280_sensor = None
 
 
@@ -16,7 +17,7 @@ def connect():
 
         bme280_sensor = adafruit_bme280.Adafruit_BME280_I2C(
             i2c,
-            address=0x76
+            address=I2C_ADDRESS
         )
 
 

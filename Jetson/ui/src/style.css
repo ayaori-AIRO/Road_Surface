@@ -99,6 +99,17 @@ small {
   padding-bottom: 4px;
   white-space: nowrap;
 }
+.settings-groups { margin: 24px 0; display: grid; gap: 20px; }
+.settings-group { min-width: 0; margin: 0; padding: 16px; border: 1px solid #263c51; }
+.settings-group legend { padding: 0 8px; font-size: 15px; font-weight: 600; color: #ecf3fc; }
+.settings-group legend span { margin-left: 12px; font-size: 11px; font-weight: 400; color: #8da1b9; }
+.settings-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.settings-fields label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #bbd0e5; }
+.settings-fields input { min-width: 0; width: 100%; }
+.settings-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.settings-panel pre { overflow: auto; padding: 16px; background: #0c121d; font-size: 12px; }
+.settings-panel li { margin: 10px 0; font-size: 13px; }
+@media(max-width: 720px) { .settings-fields { grid-template-columns: 1fr; } }
 .topbar nav {
   display: flex;
   align-self: stretch;

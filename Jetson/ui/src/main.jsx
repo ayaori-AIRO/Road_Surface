@@ -5,6 +5,7 @@ import { metrics, fmt, clock, csv, statusLabel } from "./telemetry";
 import "./style.css";
 import unieyeLogo from "./assets/unieye-logo.png";
 import LocationPanel from "./LocationPanel";
+import SensorSettings from "./SensorSettings";
 function Icon({ name, size = 20 }) {
   const paths = {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
@@ -77,7 +78,8 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(url), 1e3);
   }
   const summary = <section className="panel measurements"><div className="panel-head"><h3>{tab === "overview" ? "현재 측정값" : "진단 요약"}</h3><span>{clock(latest?.received_ms)}</span></div>{tab === "overview" && metrics.map((m) => <div className="measurement" key={m.key}><span>{m.label}</span><strong>{fmt(current?.[m.key])}<small>{m.unit}</small></strong></div>)}<div className="summary-block"><h3>예측 상태</h3><p className={fresh && latest.prediction_status === "ok" ? "success" : "warning"}>{fresh ? statusLabel(latest.prediction_status) : connection}</p></div><div className="measurement"><span>수신 간격</span><strong>{fmt(current?.receive_interval_ms, 0)}<small>ms</small></strong></div><div className="measurement"><span>회차 시작 → 전송 생성</span><strong>{fmt(current?.prediction_age_ms, 0)}<small>ms</small></strong></div><p>마지막 항목은 ML 추론 시간만을 의미하지 않습니다.</p></section>;
-  return <div className="app"><header className="topbar"><div className="brand" aria-label="UniEye RoadSurface"><img src={unieyeLogo} alt="UniEye" width="123" height="47" /><span className="brand-product">RoadSurface</span></div><nav aria-label="검색 및 탐색">{[["overview", "실시간"], ["diagnostics", "센서 진단"], ["history", "수신 기록"]].map(([id, label]) => <button key={id} className={tab === id ? "selected" : ""} aria-current={tab === id ? "page" : void 0} onClick={() => setTab(id)}>{label}</button>)}</nav><span className={fresh ? "success" : "muted"}>● {connection}</span></header><div className="shell"><LocationPanel /><main><div className="notice">시험 운영 · 기본 설정은 가상 거리·속도를 사용합니다. 예측 적설 높이는 실제 적설 측정값이 아닙니다.</div>
+  return <div className="app"><header className="topbar"><div className="brand" aria-label="UniEye RoadSurface"><img src={unieyeLogo} alt="UniEye" width="123" height="47" /><span className="brand-product">RoadSurface</span></div><nav aria-label="검색 및 탐색">{[["overview", "실시간"], ["diagnostics", "센서 진단"], ["history", "수신 기록"], ["settings", "설정"]].map(([id, label]) => <button key={id} className={tab === id ? "selected" : ""} aria-current={tab === id ? "page" : void 0} onClick={() => setTab(id)}>{label}</button>)}</nav><span className={fresh ? "success" : "muted"}>● {connection}</span></header><div className="shell"><LocationPanel /><main><div className="notice">시험 운영 · 기본 설정은 가상 거리·속도를 사용합니다. 예측 적설 높이는 실제 적설 측정값이 아닙니다.</div>
+  {tab === "settings" && <SensorSettings />}
   {tab === "overview" && <><div className="toolbar"><h2>실시간 관측</h2><div className="controls">{[[6e4, "1분"], [3e5, "5분"], [9e5, "15분"], [36e5, "1시간"]].map(([v, l]) => <button key={v} className={span === v ? "active" : ""} onClick={() => setSpan(v)}>{l}</button>)}<button onClick={() => {
     setFrozen(null);
     setPosition(1e3);

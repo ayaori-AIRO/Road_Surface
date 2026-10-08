@@ -176,7 +176,16 @@ def main():
     parser.add_argument("--no-tcp", action="store_true")
     parser.add_argument("--duration", type=float, default=0, help="0 runs until Ctrl+C")
     parser.add_argument("--aux-sensors", action="store_true", help="compatibility option; BME280 is collected by default")
+    parser.add_argument("--sensor-config", type=Path, help="sensor settings JSON exported from Jetson UI")
     args = parser.parse_args()
+    if __package__:
+        from .sensor_config import load_config, apply_config
+    else:
+        from sensor_config import load_config, apply_config
+    try:
+        sensor_config = load_config(args.sensor_config)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     predictor = Predictor(args.model)
     cleanup = []
     if args.simulate:
@@ -186,6 +195,7 @@ def main():
             from . import ct100, ftm02, imu, gps, bme280
         else:
             import ct100, ftm02, imu, gps, bme280
+        apply_config(sensor_config, imu, gps, ct100, ftm02, bme280)
         readers = {"imu": (imu.read, .1), "ct100": (ct100.read, 1.),
                    "ftm02": (ftm02.read, 1.), "gps": (gps.read_speed, .1),
                    "bme280": (bme280.read, 1.)}
