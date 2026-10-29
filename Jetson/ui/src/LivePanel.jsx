@@ -7,6 +7,7 @@ function CameraView({ name, title }) {
     let stopped = false, timer, objectUrl;
     const controller = new AbortController();
     async function refresh() {
+      let retryDelay = 0;
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch(`/api/camera/${name}`, { cache: "no-store", signal: controller.signal });
@@ -19,12 +20,13 @@ function CameraView({ name, title }) {
         if (previous) URL.revokeObjectURL(previous);
         setState("라이브");
       } catch {
+        retryDelay = 1000;
         if (stopped) return;
         image.current.removeAttribute("src");
         setState("영상 수신 대기 · 카메라 연결을 확인하세요");
       } finally {
         clearTimeout(timeout);
-        if (!stopped && !controller.signal.aborted) timer = setTimeout(refresh, 100);
+        if (!stopped && !controller.signal.aborted) timer = setTimeout(refresh, retryDelay);
         else if (!stopped) setState("서버 응답 지연 · 다시 연결을 눌러주세요");
       }
     }

@@ -14,6 +14,25 @@ class CameraStream:
         self.requested = 0
         self.stop_event = threading.Event()
 
+    def _encode_latest(self, cv2, pending, finished):
+        """Encode a single replaceable slot; never queue old camera frames."""
+        while not finished.is_set():
+            with pending['condition']:
+                pending['condition'].wait_for(lambda: pending['frame'] is not None or finished.is_set())
+                if finished.is_set():
+                    return
+                frame, captured_at = pending['frame']
+                pending['frame'] = None
+            try:
+                ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok and not finished.is_set():
+                    with self.lock:
+                        self.jpeg = jpeg.tobytes()
+                        self.updated = captured_at
+            except Exception:
+                # A bad frame must not terminate camera reception.
+                continue
+
     def frame(self):
         with self.lock:
             self.requested = time.monotonic()
@@ -38,6 +57,9 @@ class CameraStream:
                     if time.monotonic() - self.requested > 10:
                         return
                 capture = None
+                encoder = None
+                finished = threading.Event()
+                pending = {'condition': threading.Condition(), 'frame': None}
                 try:
                     pipeline = hik.make_gstreamer_pipeline(url, codec)
                     capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER,
@@ -48,7 +70,14 @@ class CameraStream:
                         capture = cv2.VideoCapture(url, cv2.CAP_FFMPEG,
                                                   [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000,
                                                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000])
-                    last_encoded = 0
+                        backend = 'FFmpeg'
+                    else:
+                        backend = 'GStreamer/NVIDIA'
+                    if capture.isOpened():
+                        print(f'[camera {self.channel}] Connected: {backend}', flush=True)
+                        encoder = threading.Thread(target=self._encode_latest,
+                                                   args=(cv2, pending, finished), daemon=True)
+                        encoder.start()
                     while capture.isOpened() and not self.stop_event.is_set():
                         with self.lock:
                             if time.monotonic() - self.requested > 10:
@@ -56,19 +85,18 @@ class CameraStream:
                         ok, frame = capture.read()
                         if not ok:
                             break
-                        now = time.monotonic()
-                        if now - last_encoded < 0.1:
-                            continue
-                        ok, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                        if ok:
-                            with self.lock:
-                                self.jpeg = jpeg.tobytes()
-                                self.updated = now
-                            last_encoded = now
+                        with pending['condition']:
+                            pending['frame'] = (frame, time.monotonic())
+                            pending['condition'].notify()
                 except Exception:
                     # Never expose camera credentials in HTTP errors or logs.
                     pass
                 finally:
+                    finished.set()
+                    with pending['condition']:
+                        pending['condition'].notify_all()
+                    if encoder is not None:
+                        encoder.join()
                     if capture is not None:
                         capture.release()
                     with self.lock:
