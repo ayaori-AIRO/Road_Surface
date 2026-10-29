@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import Mock
 from urllib.error import HTTPError
 from urllib.request import urlopen
 from http.server import ThreadingHTTPServer
@@ -22,6 +23,8 @@ class WebTests(unittest.TestCase):
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Web)
         self.server.store = Store()
         self.server.ui_dir = self.ui
+        self.server.cameras = Mock()
+        self.server.cameras.streams = {'visible': Mock(), 'thermal': Mock()}
         self.thread = threading.Thread(target=self.server.serve_forever)
         self.thread.start()
         self.base = 'http://127.0.0.1:' + str(self.server.server_port)
@@ -56,6 +59,19 @@ class WebTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             urlopen(self.base + '/')
         self.assertEqual(error.exception.code, 503)
+
+    def test_camera_frames_and_unavailable_channel(self):
+        for name in ('visible', 'thermal'):
+            self.server.cameras.streams[name].frame.return_value = b'jpeg-frame'
+            with urlopen(self.base + '/api/camera/' + name) as response:
+                self.assertEqual(response.headers.get_content_type(), 'image/jpeg')
+                self.assertEqual(response.read(), b'jpeg-frame')
+                self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        self.server.cameras.streams['visible'].frame.return_value = None
+        for name, code in [('visible', 503), ('unknown', 404)]:
+            with self.assertRaises(HTTPError) as error:
+                urlopen(self.base + '/api/camera/' + name)
+            self.assertEqual(error.exception.code, code)
 
 
 if __name__ == '__main__':

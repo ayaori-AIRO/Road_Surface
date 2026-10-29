@@ -11,6 +11,10 @@ import socketserver
 import threading
 import time
 import uuid
+try:
+    from .live_camera import LiveCameras
+except ImportError:
+    from live_camera import LiveCameras
 
 FIELDS = ('snow_height_mm', 'road_temperature_c', 'air_temperature_c', 'humidity_pct')
 EXPECTED_INTERVAL_MS = 1000
@@ -121,7 +125,18 @@ class Web(BaseHTTPRequestHandler):
     def do_GET(self):
         from urllib.parse import urlparse, parse_qs, unquote
         url = urlparse(self.path)
-        if url.path == '/api/data':
+        if url.path.startswith('/api/camera/'):
+            name = url.path[len('/api/camera/'):]
+            stream = self.server.cameras.streams.get(name)
+            if stream is None:
+                self.send_error(404)
+                return
+            data = stream.frame()
+            if data is None:
+                self.send_error(503, 'Camera connecting or unavailable')
+                return
+            kind = 'image/jpeg'
+        elif url.path == '/api/data':
             try:
                 after = max(0, int(parse_qs(url.query).get('after', ['0'])[0]))
             except ValueError:
@@ -167,6 +182,7 @@ def main():
     with TCPServer((args.host, args.port), Receiver) as tcp, ThreadingHTTPServer((args.host, args.web_port), Web) as web:
         tcp.store = web.store = store
         web.ui_dir = args.ui_dir
+        web.cameras = LiveCameras()
         thread = threading.Thread(target=tcp.serve_forever, daemon=True)
         thread.start()
         print(f'TCP :{args.port} | Expected interval: {EXPECTED_INTERVAL_MS} ms | Dashboard http://localhost:{args.web_port}')
@@ -175,6 +191,7 @@ def main():
         except KeyboardInterrupt:
             pass
         finally:
+            web.cameras.close()
             tcp.shutdown()
 
 

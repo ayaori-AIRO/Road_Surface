@@ -556,3 +556,11 @@ footer {
 .map-dialog .location-map { max-height: 65vh; }
 @media(max-width: 1150px) { :root { --location-width: 240px; } }
 @media(max-width: 720px) { .shell { display: block; } .location-panel { display: flex; min-height: 0; margin-bottom: 10px; } .location-panel > .location-map { max-height: 230px; } }
+.live-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.live-viewport { position: relative; aspect-ratio: 16 / 9; background: #050a13; overflow: hidden; }
+.live-viewport img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.live-viewport img:not([src]) { visibility: hidden; }
+.live-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #8da1b9; font-size: 13px; text-align: center; padding: 20px; }
+.topbar nav { overflow-x: auto; flex-shrink: 0; }
+@media(max-width: 1150px) { .topbar { flex-wrap: wrap; height: auto; } .topbar nav { order: 3; width: 100%; padding-top: 0; } .topbar nav button { flex: 1; white-space: nowrap; } }
+@media(max-width: 950px) { .live-grid { grid-template-columns: 1fr; } }
