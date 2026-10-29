@@ -3,7 +3,7 @@ import struct
 import time
 
 
-PORT = "/dev/ttyUSB1"
+PORT = "/dev/imu"
 BAUDRATE = 9600
 SLAVE_ID = 0x50
 

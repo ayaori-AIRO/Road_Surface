@@ -8,7 +8,7 @@ import math
 # BU-353N GPS 설정
 # ==========================================
 
-GPS_PORT = "/dev/ttyUSB0"
+GPS_PORT = "/dev/gps"
 BAUD_RATE = 4800
 
 gps_serial = None
